@@ -1,0 +1,5 @@
+{
+  "name": "WebLLM Local Chat",
+  "description": "A high-performance, private chat interface running LLMs locally in your browser using WebGPU. Supports multiple models, conversation history, and custom system prompts.",
+  "requestFramePermissions": []
+}

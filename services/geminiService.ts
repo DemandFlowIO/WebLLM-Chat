@@ -51,6 +51,7 @@ export const AVAILABLE_MODELS: ModelConfig[] = [
 
 let engine: MLCEngine | null = null;
 let isInitializing = false;
+let shouldAbortInit = false;
 
 /**
  * Initializes the local WebGPU model.
@@ -62,8 +63,12 @@ export const initLocalModel = async (
   if (engine || isInitializing) return;
   
   isInitializing = true;
+  shouldAbortInit = false;
   try {
     const initProgressCallback: InitProgressCallback = (report) => {
+      if (shouldAbortInit) {
+        throw new Error("INIT_ABORTED");
+      }
       onProgress(report.text, report.progress);
     };
     
@@ -86,13 +91,16 @@ export const initLocalModel = async (
     // Simple retry logic for transient fetch errors
     let lastError: any = null;
     for (let i = 0; i < 3; i++) {
+      if (shouldAbortInit) throw new Error("INIT_ABORTED");
       try {
+        console.log(`Starting initialization attempt ${i + 1} for ${modelConfig.id}...`);
         engine = await CreateMLCEngine(modelConfig.id, config);
         console.log("Engine initialized successfully");
         isInitializing = false;
         return;
-      } catch (error) {
-        console.warn(`Initialization attempt ${i + 1} failed:`, error);
+      } catch (error: any) {
+        if (error.message === "INIT_ABORTED") throw error;
+        console.error(`Initialization attempt ${i + 1} failed for ${modelConfig.id}:`, error.message || error);
         lastError = error;
         // Wait a bit before retrying
         await new Promise(resolve => setTimeout(resolve, 2000));
@@ -100,10 +108,24 @@ export const initLocalModel = async (
     }
     
     throw lastError;
-  } catch (error) {
-    console.error("Failed to initialize WebLLM:", error);
+  } catch (error: any) {
+    if (error.message === "INIT_ABORTED") {
+      console.log("Initialization aborted by user");
+    } else {
+      console.error("Failed to initialize WebLLM:", error);
+    }
     isInitializing = false;
+    shouldAbortInit = false;
     throw error;
+  }
+};
+
+/**
+ * Aborts the current initialization process.
+ */
+export const abortModelInit = () => {
+  if (isInitializing) {
+    shouldAbortInit = true;
   }
 };
 

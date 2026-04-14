@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Message, Role, Attachment, ModelConfig, Conversation } from './types';
-import { streamGeminiResponse, initLocalModel, AVAILABLE_MODELS, resetEngine } from './services/geminiService';
+import { streamGeminiResponse, initLocalModel, AVAILABLE_MODELS, resetEngine, abortModelInit } from './services/geminiService';
 import { fileToBase64 } from './utils/fileUtils';
 import MessageBubble from './components/MessageBubble';
 import InputArea from './components/InputArea';
@@ -116,16 +116,20 @@ const App: React.FC = () => {
         createNewChat();
       }
     } catch (err: any) {
-      if (err.message === "Aborted") return;
-      setInitError(err.message || "Failed to load model. WebGPU might not be supported.");
+      if (err.message === "INIT_ABORTED") return;
+      const errorMessage = err.message || "Unknown error";
+      setInitError(errorMessage);
+      setInitStatus(`Error: ${errorMessage}. Troubleshooting: 1. Ensure Chrome/Edge 113+ is used. 2. Check WebGPU support in browser settings. 3. Verify internet connection for initial download. 4. Check if your GPU has enough VRAM (${selectedModel?.vram}MB required).`);
     }
   };
 
   const cancelInitialization = () => {
-    // Since we can't truly abort CreateMLCEngine easily, we just reset the UI state
-    // and reload the page to be safe if they want to stop the bandwidth usage.
-    if (confirm("Canceling initialization will stop the download. The page will refresh to ensure the engine is reset.")) {
-      window.location.reload();
+    if (confirm("Are you sure you want to cancel the model initialization?")) {
+      abortModelInit();
+      setIsInitializingStarted(false);
+      setSelectedModel(null);
+      setInitPercent(0);
+      setInitStatus("");
     }
   };
 
@@ -259,18 +263,40 @@ const App: React.FC = () => {
   if (initError) {
     return (
       <div className="flex items-center justify-center h-screen bg-[#0d1117] text-white p-8">
-        <div className="max-w-md text-center">
+        <div className="max-w-2xl text-center">
           <div className="inline-flex p-4 bg-red-900/30 text-red-500 rounded-full mb-4">
             <AlertCircle size={48} />
           </div>
           <h2 className="text-2xl font-bold mb-4">Initialization Failed</h2>
-          <p className="text-gray-400 mb-8 leading-relaxed">{initError}</p>
-          <button 
-            onClick={() => window.location.reload()}
-            className="w-full bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-500/20"
-          >
-            Retry Initialization
-          </button>
+          <div className="bg-[#161b22] border border-red-500/20 rounded-2xl p-6 mb-8 text-left">
+            <p className="text-red-400 font-mono text-sm mb-4 break-words">Error: {initError}</p>
+            <h4 className="text-gray-200 font-bold mb-2">Troubleshooting Steps:</h4>
+            <ul className="text-gray-400 text-sm space-y-2 list-disc pl-5">
+              <li>Ensure you are using <strong>Chrome 113+</strong> or <strong>Edge 113+</strong>.</li>
+              <li>Verify that <strong>WebGPU</strong> is enabled in your browser (check <code>chrome://flags/#enable-unsafe-webgpu</code> if needed).</li>
+              <li>Check your internet connection; the initial model download can be several gigabytes.</li>
+              <li>Ensure your GPU has at least <strong>{selectedModel?.vram}MB</strong> of available VRAM.</li>
+              <li>Try refreshing the page or clearing your browser cache.</li>
+            </ul>
+          </div>
+          <div className="flex gap-4">
+            <button 
+              onClick={() => window.location.reload()}
+              className="flex-1 bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-500/20"
+            >
+              Retry Initialization
+            </button>
+            <button 
+              onClick={() => {
+                setInitError(null);
+                setIsInitializingStarted(false);
+                setSelectedModel(null);
+              }}
+              className="flex-1 bg-[#21262d] text-white px-6 py-3 rounded-xl font-bold hover:bg-[#30363d] transition-all border border-[#30363d]"
+            >
+              Back to Models
+            </button>
+          </div>
         </div>
       </div>
     );

@@ -57,14 +57,14 @@ let isInitializing = false;
  */
 export const initLocalModel = async (
   modelConfig: ModelConfig,
-  onProgress: (progress: string) => void
+  onProgress: (progress: string, percent?: number) => void
 ): Promise<void> => {
   if (engine || isInitializing) return;
   
   isInitializing = true;
   try {
     const initProgressCallback: InitProgressCallback = (report) => {
-      onProgress(report.text);
+      onProgress(report.text, report.progress);
     };
     
     const config = { 

@@ -19,6 +19,7 @@ const App: React.FC = () => {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [initStatus, setInitStatus] = useState<string>("");
+  const [initPercent, setInitPercent] = useState<number>(0);
   const [isModelReady, setIsModelReady] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState<ModelConfig | null>(null);
@@ -102,17 +103,29 @@ const App: React.FC = () => {
     setSelectedModel(model);
     setIsInitializingStarted(true);
     setInitStatus("Initializing WebGPU...");
+    setInitPercent(0);
     try {
-      await initLocalModel(model, (progress) => {
-        setInitStatus(progress);
+      await initLocalModel(model, (status, percent) => {
+        setInitStatus(status);
+        if (percent !== undefined) setInitPercent(percent);
       });
       setIsModelReady(true);
       setInitStatus("");
+      setInitPercent(0);
       if (!activeId) {
         createNewChat();
       }
     } catch (err: any) {
+      if (err.message === "Aborted") return;
       setInitError(err.message || "Failed to load model. WebGPU might not be supported.");
+    }
+  };
+
+  const cancelInitialization = () => {
+    // Since we can't truly abort CreateMLCEngine easily, we just reset the UI state
+    // and reload the page to be safe if they want to stop the bandwidth usage.
+    if (confirm("Canceling initialization will stop the download. The page will refresh to ensure the engine is reset.")) {
+      window.location.reload();
     }
   };
 
@@ -123,6 +136,8 @@ const App: React.FC = () => {
       setIsModelReady(false);
       setIsInitializingStarted(false);
       setSelectedModel(null);
+      setInitPercent(0);
+      setInitStatus("");
     } catch (err) {
       console.error("Failed to reset engine", err);
     } finally {
@@ -261,56 +276,127 @@ const App: React.FC = () => {
     );
   }
 
-  if (!isInitializingStarted) {
+  if (!isModelReady) {
     return (
       <div className="min-h-screen bg-[#0d1117] text-white flex flex-col items-center justify-center p-6 overflow-y-auto">
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="max-w-5xl w-full"
+          className="max-w-5xl w-full py-12"
         >
           <div className="text-center mb-16">
-            <div className="bg-indigo-600/20 w-24 h-24 rounded-[2.5rem] flex items-center justify-center mx-auto mb-8 text-indigo-500 shadow-2xl shadow-indigo-500/10">
+            <motion.div 
+              animate={isInitializingStarted ? { scale: [1, 1.1, 1], rotate: [0, 5, -5, 0] } : {}}
+              transition={{ repeat: Infinity, duration: 3 }}
+              className="bg-indigo-600/20 w-24 h-24 rounded-[2.5rem] flex items-center justify-center mx-auto mb-8 text-indigo-500 shadow-2xl shadow-indigo-500/10"
+            >
               <Bot size={48} />
-            </div>
-            <h1 className="text-5xl font-black mb-4 tracking-tight">WebLLM Chat</h1>
+            </motion.div>
+            <h1 className="text-5xl font-black mb-4 tracking-tight">
+              {isInitializingStarted ? "Loading Model..." : "Select Your Model"}
+            </h1>
             <p className="text-xl text-gray-400 max-w-2xl mx-auto leading-relaxed">
-              Experience private, local AI running entirely in your browser. 
-              No data ever leaves your device.
+              {isInitializingStarted 
+                ? `Preparing ${selectedModel?.name}. This may take a few minutes depending on your connection.`
+                : "Choose a local LLM to power your private chat experience."}
             </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {AVAILABLE_MODELS.map((model, idx) => (
-              <motion.button
-                key={model.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: idx * 0.1 }}
-                onClick={() => startModel(model)}
-                className="group relative bg-[#161b22] border border-[#30363d] rounded-[2rem] p-8 text-left hover:border-indigo-500/50 hover:bg-[#1c2128] transition-all duration-300 flex flex-col h-full shadow-sm hover:shadow-2xl hover:shadow-indigo-500/5"
-              >
-                <div className="mb-6 flex justify-between items-start">
-                  <div className="p-4 rounded-2xl bg-[#0d1117] group-hover:bg-indigo-600/10 text-gray-400 group-hover:text-indigo-500 transition-all">
-                    {model.id.includes('gemma') ? <Zap size={28} /> : model.id.includes('Llama') ? <Shield size={28} /> : <Bot size={28} />}
+            {AVAILABLE_MODELS.map((model, idx) => {
+              const isSelected = selectedModel?.id === model.id;
+              const isDisabled = isInitializingStarted && !isSelected;
+              const isLoading = isSelected && !isModelReady;
+
+              return (
+                <motion.button
+                  key={model.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: idx * 0.1 }}
+                  disabled={isDisabled || isLoading}
+                  onClick={() => startModel(model)}
+                  className={`
+                    group relative bg-[#161b22] border rounded-[2rem] p-8 text-left transition-all duration-300 flex flex-col h-full shadow-sm
+                    ${isSelected ? 'border-indigo-500 bg-[#1c2128] shadow-2xl shadow-indigo-500/10 scale-[1.02]' : 'border-[#30363d] hover:border-indigo-500/50 hover:bg-[#1c2128]'}
+                    ${isDisabled ? 'opacity-40 grayscale cursor-not-allowed' : 'opacity-100'}
+                  `}
+                >
+                  <div className="mb-6 flex justify-between items-start">
+                    <div className={`
+                      p-4 rounded-2xl transition-all
+                      ${isSelected ? 'bg-indigo-600 text-white' : 'bg-[#0d1117] group-hover:bg-indigo-600/10 text-gray-400 group-hover:text-indigo-500'}
+                    `}>
+                      {model.id.includes('gemma') ? <Zap size={28} /> : model.id.includes('Llama') ? <Shield size={28} /> : <Bot size={28} />}
+                    </div>
+                    <div className="flex flex-col items-end gap-2">
+                      <div className="text-xs font-black px-3 py-1.5 bg-[#21262d] rounded-full text-gray-400 uppercase tracking-widest">
+                        {model.size}
+                      </div>
+                      {isSelected && (
+                        <motion.div 
+                          initial={{ scale: 0 }}
+                          animate={{ scale: 1 }}
+                          className="bg-indigo-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase"
+                        >
+                          Selected
+                        </motion.div>
+                      )}
+                    </div>
                   </div>
-                  <div className="text-xs font-black px-3 py-1.5 bg-[#21262d] rounded-full text-gray-400 uppercase tracking-widest">
-                    {model.size}
-                  </div>
-                </div>
-                <h3 className="text-2xl font-bold mb-3 group-hover:text-indigo-400 transition-colors">{model.name}</h3>
-                <p className="text-gray-400 text-sm leading-relaxed mb-8 flex-1">{model.description}</p>
-                <div className="mt-auto pt-6 border-t border-[#30363d] flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-xs font-bold text-gray-500 uppercase tracking-wider">
-                    <HardDrive size={14} />
-                    {model.vram}MB VRAM
-                  </div>
-                  <div className="bg-indigo-600 text-white p-2.5 rounded-xl opacity-0 group-hover:opacity-100 transition-all translate-y-2 group-hover:translate-y-0">
-                    <Check size={18} />
-                  </div>
-                </div>
-              </motion.button>
-            ))}
+
+                  <h3 className={`text-2xl font-bold mb-3 transition-colors ${isSelected ? 'text-white' : 'group-hover:text-indigo-400'}`}>
+                    {model.name}
+                  </h3>
+                  <p className="text-gray-400 text-sm leading-relaxed mb-8 flex-1">
+                    {model.description}
+                  </p>
+
+                  {isLoading ? (
+                    <div className="mt-auto space-y-4">
+                      <div className="flex justify-between items-end mb-1">
+                        <p className="text-[10px] font-mono text-indigo-400 truncate uppercase tracking-tighter max-w-[70%]">
+                          {initStatus || "Initializing..."}
+                        </p>
+                        <span className="text-[10px] font-bold text-indigo-500">
+                          {Math.round(initPercent * 100)}%
+                        </span>
+                      </div>
+                      <div className="w-full bg-[#0d1117] rounded-full h-1.5 overflow-hidden">
+                        <motion.div 
+                          initial={{ width: "0%" }}
+                          animate={{ width: `${initPercent * 100}%` }}
+                          transition={{ duration: 0.3 }}
+                          className="bg-indigo-500 h-full"
+                        />
+                      </div>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          cancelInitialization();
+                        }}
+                        className="w-full py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 text-[10px] font-bold uppercase tracking-widest rounded-lg transition-all"
+                      >
+                        Cancel Download
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="mt-auto pt-6 border-t border-[#30363d] flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-xs font-bold text-gray-500 uppercase tracking-wider">
+                        <HardDrive size={14} />
+                        {model.vram}MB VRAM
+                      </div>
+                      <div className={`
+                        p-2.5 rounded-xl transition-all
+                        ${isSelected ? 'bg-indigo-600 text-white opacity-100' : 'bg-[#21262d] text-gray-400 opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0'}
+                      `}>
+                        {isSelected ? <RefreshCw size={18} className="animate-spin-slow" /> : <Check size={18} />}
+                      </div>
+                    </div>
+                  )}
+                </motion.button>
+              );
+            })}
           </div>
 
           <div className="mt-16 p-8 bg-indigo-600/5 rounded-[2.5rem] border border-indigo-500/10 flex items-start gap-6 max-w-3xl mx-auto">
@@ -460,24 +546,6 @@ const App: React.FC = () => {
 
         {/* Chat Area */}
         <div className="flex-1 overflow-y-auto relative scroll-smooth">
-          {!isModelReady && (
-             <div className="absolute inset-0 z-40 bg-[#0d1117]/90 flex flex-col items-center justify-center p-8 text-center">
-                <div className="w-20 h-20 bg-indigo-600/10 text-indigo-500 rounded-3xl flex items-center justify-center mb-6 animate-pulse">
-                  <Download size={40} />
-                </div>
-                <h3 className="text-2xl font-bold mb-2">Downloading {selectedModel?.name}</h3>
-                <p className="text-gray-400 max-w-md mb-8 leading-relaxed">
-                  Caching model weights to your browser. This will only happen once.
-                </p>
-                <div className="w-full max-w-sm bg-[#21262d] rounded-full h-2 mb-4 overflow-hidden">
-                  <div className="bg-indigo-600 h-full rounded-full transition-all duration-300 w-full animate-pulse"></div>
-                </div>
-                <p className="text-xs font-mono text-gray-500 truncate max-w-xs">
-                  {initStatus || "Preparing WebGPU..."}
-                </p>
-             </div>
-          )}
-
           <div className="max-w-4xl mx-auto py-8 px-4 md:px-6">
             {activeConversation?.messages.length === 0 ? (
               <motion.div 

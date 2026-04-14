@@ -42,4 +42,5 @@ export interface ModelConfig {
   url: string;
   wasmUrl: string;
   size: string;
+  family?: string;
 }

@@ -27,6 +27,7 @@ const App: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [modelSearchQuery, setModelSearchQuery] = useState("");
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -43,6 +44,16 @@ const App: React.FC = () => {
       c.messages.some(m => m.text.toLowerCase().includes(searchQuery.toLowerCase()))
     );
   }, [conversations, searchQuery]);
+
+  const filteredModels = useMemo(() => {
+    if (!modelSearchQuery.trim()) return AVAILABLE_MODELS;
+    const query = modelSearchQuery.toLowerCase();
+    return AVAILABLE_MODELS.filter(m => 
+      m.name.toLowerCase().includes(query) || 
+      m.family?.toLowerCase().includes(query) ||
+      m.description.toLowerCase().includes(query)
+    );
+  }, [modelSearchQuery]);
 
   // --- Effects ---
   
@@ -328,8 +339,23 @@ const App: React.FC = () => {
             </p>
           </div>
 
+          {!isInitializingStarted && (
+            <div className="max-w-xl mx-auto mb-12 relative group">
+              <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-500 group-focus-within:text-indigo-500 transition-colors">
+                <Search size={20} />
+              </div>
+              <input 
+                type="text"
+                placeholder="Search models by name, family, or description..."
+                value={modelSearchQuery}
+                onChange={(e) => setModelSearchQuery(e.target.value)}
+                className="w-full bg-[#161b22] border border-[#30363d] rounded-2xl py-4 pl-12 pr-4 text-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none transition-all placeholder:text-gray-600"
+              />
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {AVAILABLE_MODELS.map((model, idx) => {
+            {filteredModels.map((model, idx) => {
               const isSelected = selectedModel?.id === model.id;
               const isDisabled = isInitializingStarted && !isSelected;
               const isLoading = isSelected && !isModelReady;
@@ -356,8 +382,15 @@ const App: React.FC = () => {
                       {model.id.includes('gemma') ? <Zap size={28} /> : model.id.includes('Llama') ? <Shield size={28} /> : <Bot size={28} />}
                     </div>
                     <div className="flex flex-col items-end gap-2">
-                      <div className="text-xs font-black px-3 py-1.5 bg-[#21262d] rounded-full text-gray-400 uppercase tracking-widest">
-                        {model.size}
+                      <div className="flex gap-2">
+                        {model.family && (
+                          <div className="text-[10px] font-bold px-2 py-1 bg-indigo-500/10 text-indigo-400 rounded-md uppercase tracking-wider">
+                            {model.family}
+                          </div>
+                        )}
+                        <div className="text-xs font-black px-3 py-1.5 bg-[#21262d] rounded-full text-gray-400 uppercase tracking-widest">
+                          {model.size}
+                        </div>
                       </div>
                       {isSelected && (
                         <motion.div 
@@ -424,6 +457,22 @@ const App: React.FC = () => {
               );
             })}
           </div>
+
+          {filteredModels.length === 0 && (
+            <div className="text-center py-20 bg-[#161b22] border border-[#30363d] rounded-[2.5rem]">
+              <div className="inline-flex p-4 bg-indigo-600/10 text-indigo-500 rounded-full mb-4">
+                <Search size={32} />
+              </div>
+              <h3 className="text-xl font-bold mb-2">No models found</h3>
+              <p className="text-gray-400">Try searching for a different keyword or family.</p>
+              <button 
+                onClick={() => setModelSearchQuery("")}
+                className="mt-6 text-indigo-400 hover:text-indigo-300 font-bold"
+              >
+                Clear Search
+              </button>
+            </div>
+          )}
 
           <div className="mt-16 p-8 bg-indigo-600/5 rounded-[2.5rem] border border-indigo-500/10 flex items-start gap-6 max-w-3xl mx-auto">
             <div className="p-3 bg-indigo-600/10 rounded-2xl text-indigo-500 mt-1">
